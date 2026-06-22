@@ -2,7 +2,7 @@ const XLSX = require("xlsx");
 const fs = require("fs");
 const path = require("path");
 
-const excelPath = path.join(__dirname, "template1.xls");
+const excelPath = path.join(__dirname, "template2.xls");
 const jsonPath = path.join(__dirname, "data.json");
 
 try {

@@ -2,6 +2,13 @@ const SUBMIT_DATA = [];
 const FETCH_URL =
   "https://cq.12348.gov.cn/report1/api/v1/cases/caseApply/createCaseApply";
 
+const CONFIG = {
+  applyUrl:
+    "https://cq.12348.gov.cn/report1/api/v1/cases/caseApply/createCaseApply",
+  idCardBaseInfoUrl:
+    "https://cq.12348.gov.cn/report1/api/v1/cases/irs/irsIdCardBaseInfo",
+};
+
 function getIdCardInfo(idCard) {
   idCard = idCard.trim();
 
@@ -66,17 +73,70 @@ function getDate(now) {
   return formatted;
 }
 
-function getPayload(data) {
+// 获取人员身份证信息
+async function getIdCardBaseInfo(idCard) {
+  if (!idCard) {
+    throw Error("请传入身份证号");
+  }
+  const respData = await fetch(
+    `${CONFIG.idCardBaseInfoUrl}?idCard=${idCard}&timestamp=${Date.now()}`,
+    {
+      headers: {
+        accept: "application/json, text/plain, */*",
+        "accept-language":
+          "zh,ja-JP;q=0.9,ja;q=0.8,zh-CN;q=0.7,en-US;q=0.6,en;q=0.5",
+        authorization: sessionStorage.getItem("ctis-web-1.6.0-token"),
+        "sec-ch-ua":
+          '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+      },
+      referrer: "https://cq.12348.gov.cn/report1/",
+      body: null,
+      method: "GET",
+      mode: "cors",
+      credentials: "include",
+    },
+  ).then((resp) => resp.json());
+  const result = respData?.data?.[0];
+  if(!result){
+    console.warn(`idCard:${idCard}: 未能获取到信息`);
+    return;
+  }
+  return result;
+}
+
+function getPersonNationCode(nationStr) {
+  try {
+    const nationDict = JSON.parse(sessionStorage.getItem("DICT_RYMZ"));
+    return (
+      nationDict?.find((item) => item.itemText.startsWith(nationStr))
+        ?.itemValue ?? "01"
+    );
+  } catch (error) {
+    console.error("解析民族字典失败");
+    throw Error(error);
+  }
+}
+
+async function getPayload(data) {
   const applyTime = getDate(new Date());
-  const p1 = data["当事人1"];
-  const p2 = data["当事人2"];
-  const p1Id = data["当事人1证件号码"];
-  const p2Id = data["当事人2证件号码"];
-  const p1PhoneNumber = data["联系方式"];
-  const p2PhoneNumber = data["联系方式2"];
   const caseInfo = data["基本情况"];
-  const { age, gender } = getIdCardInfo(p1Id);
-  const p2IdCardInfo = getIdCardInfo(p2Id);
+  const applicantName = data["当事人1"];
+  const respondentName = data["当事人2"];
+  const applicantIdCard = data["当事人1证件号码"];
+  const respondentIdCard = data["当事人2证件号码"];
+  const applicantPhoneNumber = data["联系方式"];
+  const respondentPhoneNumber = data["联系方式2"];
+  const [applicantBaseInfo = {}, respondentBaseInfo = {}] = await Promise.all([
+    getIdCardBaseInfo(applicantIdCard),
+    getIdCardBaseInfo(respondentIdCard),
+  ]);
+  const applicantIdCardInfo = getIdCardInfo(applicantIdCard);
+  const respondentIdCardInfo = getIdCardInfo(respondentIdCard);
 
   return {
     applyTime,
@@ -91,14 +151,14 @@ function getPayload(data) {
         agentPhone: null,
         agentIdType: null,
         agentIdCard: null,
-        partyName: p1,
+        partyName: applicantName,
         idType: "100001",
-        idCard: p1Id,
-        address: " ",
-        age: age,
-        sex: gender,
-        nation: "01",
-        phone: p1PhoneNumber,
+        idCard: applicantIdCard,
+        address: applicantBaseInfo?.hkszd ?? " ",
+        age: applicantIdCardInfo.age,
+        sex: applicantIdCardInfo.gender,
+        nation: getPersonNationCode(applicantBaseInfo.mz),
+        phone: applicantPhoneNumber,
         partyTypeName: "自然人",
         idTypeName: "身份证",
         dsrType: "sqr",
@@ -113,14 +173,14 @@ function getPayload(data) {
         agentPhone: null,
         agentIdType: null,
         agentIdCard: null,
-        partyName: p2,
-        phone : p2PhoneNumber,
+        partyName: respondentName,
+        phone: respondentPhoneNumber,
         idType: "100001",
-        idCard: p2Id,
-        address: " ",
-        age: p2IdCardInfo.age,
-        sex: p2IdCardInfo.gender,
-        nation: "01",
+        idCard: respondentIdCard,
+        address: respondentBaseInfo?.hkszd ?? " ",
+        age: respondentIdCardInfo.age,
+        sex: respondentIdCardInfo.gender,
+        nation: getPersonNationCode(respondentBaseInfo.mz),
         partyTypeName: "自然人",
         idTypeName: "身份证",
         dsrType: "bsqr",
@@ -131,8 +191,8 @@ function getPayload(data) {
 }
 
 async function submitData(data) {
-  const payload = getPayload(data);
-  const fetchUrl = `${FETCH_URL}?timestamp=${Date.now()}`;
+  const payload = await getPayload(data);
+  const fetchUrl = `${CONFIG.applyUrl}?timestamp=${Date.now()}`;
   return fetch(fetchUrl, {
     headers: {
       authorization: sessionStorage.getItem("ctis-web-1.6.0-token"),
